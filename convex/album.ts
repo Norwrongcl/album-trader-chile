@@ -134,12 +134,6 @@ export const saveSnapshot = mutation({
       .take(1200);
     const existingByStickerId = new Map(existingStickers.map((sticker) => [sticker.stickerId, sticker]));
 
-    for (const sticker of existingStickers) {
-      if (!stickerIds.has(sticker.stickerId)) {
-        await ctx.db.delete(sticker._id);
-      }
-    }
-
     for (const stickerId of stickerIds) {
       const stickerState = {
         ownerTokenIdentifier: identity.tokenIdentifier,

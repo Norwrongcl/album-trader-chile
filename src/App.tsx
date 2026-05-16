@@ -558,6 +558,10 @@ function getAlbumSnapshot(state = readStoredAlbumState()): AlbumSnapshot {
   }
 }
 
+function getSafeAlbumState(state: StoredAlbumState | null | undefined) {
+  return state ?? readStoredAlbumState()
+}
+
 function useOnlineStatus() {
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
 
@@ -1113,7 +1117,13 @@ function ActiveSection({ section }: { section: AppSection }) {
 }
 
 function DashboardSection() {
-  const snapshot = getAlbumSnapshot()
+  const remoteAlbumState = useQuery(api.album.mine)
+  const albumState = getSafeAlbumState(remoteAlbumState)
+  const snapshot = getAlbumSnapshot(albumState)
+
+  useEffect(() => {
+    if (remoteAlbumState && !hasPendingAlbumSync()) writeStoredAlbumState(remoteAlbumState)
+  }, [remoteAlbumState])
 
   return (
     <div className="grid gap-4">
@@ -1182,10 +1192,25 @@ function AlbumSection() {
     ? `remote-${remoteAlbumState.owned.length}-${remoteAlbumState.duplicates.length}-${remoteAlbumState.wanted.length}-${remoteAlbumState.wantedMode}`
     : 'local-first'
 
-  return <AlbumEditor initialAlbumState={initialAlbumState} key={editorKey} />
+  return (
+    <AlbumEditor
+      initialAlbumState={initialAlbumState}
+      isLoadingRemote={remoteAlbumState === undefined && !hasLocalPendingSync}
+      key={editorKey}
+      usingLocalPendingSync={hasLocalPendingSync}
+    />
+  )
 }
 
-function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumState }) {
+function AlbumEditor({
+  initialAlbumState,
+  isLoadingRemote,
+  usingLocalPendingSync,
+}: {
+  initialAlbumState: StoredAlbumState
+  isLoadingRemote: boolean
+  usingLocalPendingSync: boolean
+}) {
   const saveSticker = useMutation(api.album.setSticker)
   const saveWantedMode = useMutation(api.album.setWantedMode)
   const saveAlbumSnapshot = useMutation(api.album.saveSnapshot)
@@ -1200,7 +1225,7 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
   const [wantedStickerIds, setWantedStickerIds] = useState<Set<string>>(() => new Set(initialAlbumState.wanted))
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set())
   const [collapsedTeamIds, setCollapsedTeamIds] = useState<Set<string>>(() => new Set())
-  const [syncStatus, setSyncStatus] = useState<AlbumSyncStatus>(() => (hasPendingAlbumSync() ? 'pending' : 'synced'))
+  const [syncStatus, setSyncStatus] = useState<AlbumSyncStatus>(() => (usingLocalPendingSync ? 'pending' : 'synced'))
   const normalizedSearch = searchTerm.trim().toLowerCase()
   const missingStickerCount = worldCup2026Catalog.totalStickers - ownedStickerIds.size
   const wantedStickerCount = wantedMode === 'allMissing' ? missingStickerCount : wantedStickerIds.size
@@ -1389,7 +1414,9 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
             </p>
           </div>
           <span className={`inline-flex w-fit rounded-full px-3 py-2 text-xs font-black ${visibleSyncStatus === 'synced' ? 'bg-green-100 text-green-800' : visibleSyncStatus === 'syncing' ? 'bg-blue-100 text-blue-950' : 'bg-amber-100 text-amber-800'}`}>
-            {visibleSyncStatus === 'syncing'
+            {isLoadingRemote
+              ? 'Cargando nube'
+              : visibleSyncStatus === 'syncing'
               ? 'Sincronizando'
               : visibleSyncStatus === 'synced'
                 ? 'Sincronizado'
@@ -1938,6 +1965,8 @@ function StoresSection() {
 
 function ProfileSection() {
   const currentProfile = useQuery(api.profiles.current)
+  const remoteAlbumState = useQuery(api.album.mine)
+  const profileSnapshot = getAlbumSnapshot(getSafeAlbumState(remoteAlbumState))
   const saveProfile = useMutation(api.profiles.upsert)
   const [regionCode, setRegionCode] = useState(defaultRegionCode)
   const selectedRegion = getRegionByCode(regionCode)
@@ -2001,8 +2030,8 @@ function ProfileSection() {
         <h3 className="mt-2 text-3xl font-black tracking-[-0.05em]">Coleccionista en {commune}</h3>
         <p className="mt-3 text-sm leading-6 text-white/65">Otros usuarios podrán contactarte desde matches válidos o publicaciones del mercado.</p>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <MetricCard label="Repetidas" value={`${getAlbumSnapshot().duplicateCount}`} tone="red" />
-          <MetricCard label="Buscadas" value={`${getAlbumSnapshot().wantedCount}`} tone="light" />
+          <MetricCard label="Repetidas" value={`${profileSnapshot.duplicateCount}`} tone="red" />
+          <MetricCard label="Buscadas" value={`${profileSnapshot.wantedCount}`} tone="light" />
         </div>
       </div>
       </div>
