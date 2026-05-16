@@ -11,6 +11,30 @@ async function requireIdentity(ctx: MutationCtx) {
   return identity;
 }
 
+function normalizeWhatsapp(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  if (digits.length === 9 && digits.startsWith("9")) return `+56${digits}`;
+  if (digits.length === 11 && digits.startsWith("56")) return `+${digits}`;
+  if (digits.length === 12 && digits.startsWith("056")) return `+${digits.slice(1)}`;
+
+  return digits.startsWith("+") ? digits : `+${digits}`;
+}
+
+function normalizeInstagram(value: string | undefined) {
+  const cleaned = value
+    ?.trim()
+    .replace(/^https?:\/\/(www\.)?instagram\.com\//i, "")
+    .replace(/^@/, "")
+    .replace(/\?.*$/, "")
+    .replace(/\/$/, "")
+    .toLowerCase();
+
+  if (!cleaned) return undefined;
+
+  return cleaned.replace(/[^a-z0-9._]/g, "");
+}
+
 export const current = query({
   args: {},
   handler: async (ctx) => {
@@ -37,11 +61,11 @@ export const upsert = mutation({
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx);
     const displayName = args.displayName.trim();
-    const whatsapp = args.whatsapp.trim();
-    const instagram = args.instagram?.trim();
+    const whatsapp = normalizeWhatsapp(args.whatsapp);
+    const instagram = normalizeInstagram(args.instagram);
 
     if (displayName.length < 2) throw new Error("Nombre visible invalido");
-    if (whatsapp.length < 8) throw new Error("WhatsApp invalido");
+    if (!/^\+569\d{8}$/.test(whatsapp)) throw new Error("WhatsApp invalido");
 
     const existingProfile = await ctx.db
       .query("profiles")
@@ -54,7 +78,7 @@ export const upsert = mutation({
       regionName: args.regionName,
       commune: args.commune,
       whatsapp,
-      instagram: instagram ? instagram.replace(/^@/, "") : undefined,
+      instagram,
       updatedAt: Date.now(),
     };
 

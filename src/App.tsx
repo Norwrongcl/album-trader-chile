@@ -2,11 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent, type InputHTMLAttributes 
 import { useAuthActions, useConvexAuth } from '@convex-dev/auth/react'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '../convex/_generated/api'
-import type { Id } from '../convex/_generated/dataModel'
 import { chileRegions, defaultRegionCode, getRegionByCode } from './data/chileLocations'
 import { worldCup2026Catalog, type StickerCatalogItem } from './data/worldCup2026Stickers'
 
-type AppSection = 'inicio' | 'album' | 'groups' | 'market' | 'perfil'
+type AppSection = 'inicio' | 'album' | 'matches' | 'perfil'
 type StickerStatus = 'owned' | 'duplicate' | 'wanted' | 'match'
 type AlbumFilter = 'all' | 'missing' | 'owned' | 'duplicates' | 'wanted'
 type WantedMode = 'allMissing' | 'specific'
@@ -63,6 +62,13 @@ type AlbumGroup = {
   teams: AlbumTeam[]
 }
 
+type SalesPoint = {
+  name: string
+  address: string
+  commune: string
+  region: string
+}
+
 type VisibleAlbumTeam = AlbumTeam & {
   stickers: StickerCatalogItem[]
 }
@@ -74,8 +80,7 @@ type VisibleAlbumGroup = Omit<AlbumGroup, 'teams'> & {
 const navigation: { id: AppSection; label: string }[] = [
   { id: 'inicio', label: 'Inicio' },
   { id: 'album', label: 'Mi álbum' },
-  { id: 'groups', label: 'Grupos' },
-  { id: 'market', label: 'Mercado' },
+  { id: 'matches', label: 'Matches' },
   { id: 'perfil', label: 'Perfil' },
 ]
 
@@ -353,6 +358,33 @@ const matches: Match[] = [
   },
 ]
 
+const salesPoints: SalesPoint[] = [
+  { name: 'Galería Costa Azul', address: 'Carvallo 559, Local 10', commune: 'Copiapó', region: 'Copiapó' },
+  { name: 'Stripcenter Petrobras', address: 'Av. 4 esquinas 1580, Local 8', commune: 'La Serena', region: 'La Serena' },
+  { name: 'Mall Paseo Balmaceda', address: 'Balmaceda 2885, Local 219A', commune: 'La Serena', region: 'La Serena' },
+  { name: 'Mall Paseo Viña centro', address: 'Av. Valparaíso 1070, Local 3036', commune: 'Viña del Mar', region: 'Valparaíso' },
+  { name: 'Mall paseo Ross', address: 'Av Argentina 540, Local 102', commune: 'Valparaíso', region: 'Valparaíso' },
+  { name: 'Strip Center Curauma', address: 'Av. Curauma Norte 2961, Local 11', commune: 'Curauma', region: 'Valparaíso' },
+  { name: 'Galería Drugstore', address: 'Las Urbinas 37, local 41 y 42', commune: 'Providencia', region: 'Metropolitana De Santiago' },
+  { name: 'Mall Plaza Norte', address: 'Av. Américo Vespucio 1737, Local 2153 - 2157A', commune: 'Huechuraba', region: 'Metropolitana De Santiago' },
+  { name: 'Mall Plaza Egaña', address: 'Av. Larraín 5862, Local A-3049', commune: 'La Reina', region: 'Metropolitana De Santiago' },
+  { name: 'Espacio Urbano Maipú', address: 'Av. Los Pajaritos 1790, Local 2008', commune: 'Maipú', region: 'Metropolitana De Santiago' },
+  { name: 'Espacio Urbano La Dehesa', address: 'El Rodeo 12850, Local 27', commune: 'Lo Barnechea', region: 'Metropolitana De Santiago' },
+  { name: 'Mall Plaza Los Dominicos', address: 'Av. Padre Hurtado Sur 875, Local B-3060', commune: 'Las Condes', region: 'Metropolitana De Santiago' },
+  { name: 'Mall Plaza Vespucio', address: 'Av. Vicuña Mackenna Oriente N°7110, Local 380-381A', commune: 'La Florida', region: 'Metropolitana De Santiago' },
+  { name: 'Mall Plaza Oeste', address: 'Av. Américo Vespucio 1501, Local 373', commune: 'Cerrillos', region: 'Metropolitana De Santiago' },
+  { name: 'Stripcenter Santa Isabel', address: 'Av. Virginia Subercaseux 475, Local 4', commune: 'Pirque', region: 'Metropolitana De Santiago' },
+  { name: 'Tienda', address: 'Campos 489-B', commune: 'Rancagua', region: "Lib. Gral. Bernardo O'Higgins" },
+  { name: 'Mall Paseo Parque Machalí', address: 'Avenida San Juan 133, Local 23', commune: 'Rancagua', region: "Lib. Gral. Bernardo O'Higgins" },
+  { name: 'Galería Diego Portales', address: 'El Roble 868, Local 14', commune: 'Chillán', region: 'Ñuble' },
+  { name: 'Galeria Babaria', address: '6 Oriente 1050, Local 27', commune: 'Talca', region: 'Maule' },
+  { name: 'Boulevard Central', address: 'Peña 459, Local 11', commune: 'Curicó', region: 'Maule' },
+  { name: 'Tienda', address: 'Freire 522, Local 156', commune: 'Concepción', region: 'Biobío' },
+  { name: 'Galería Altamira', address: 'Bulnes 314, Local 4', commune: 'Temuco', region: 'La Araucanía' },
+  { name: 'Tienda', address: 'Concepción 902', commune: 'Puerto Montt', region: 'Los Lagos' },
+  { name: 'Mall Zona Franca', address: 'Manzana 18, Zona Franca, Local 245', commune: 'Punta Arenas', region: 'Magallanes y De La Antártica Chilena' },
+]
+
 const steps = [
   'Crea tu cuenta con correo y contraseña, sin esperar verificaciones.',
   'Marca las láminas que tienes, repetidas y buscadas.',
@@ -377,12 +409,6 @@ const statusStyles: Record<StickerStatus, string> = {
   duplicate: 'bg-[#D90429] text-white',
   wanted: 'bg-[#DBEAFE] text-[#0B1739]',
   match: 'bg-green-600 text-white',
-}
-
-const listingStatusLabels: Record<'active' | 'paused' | 'sold', string> = {
-  active: 'Activa',
-  paused: 'Pausada',
-  sold: 'Vendida',
 }
 
 const albumStorageKey = 'album-trader-chile.album.v1'
@@ -463,6 +489,38 @@ function writeStoredMatches(nextMatches: Match[]) {
   window.localStorage.setItem(matchesStorageKey, JSON.stringify(nextMatches))
 }
 
+function normalizeText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function sortSalesPointsForProfile(points: SalesPoint[], profile: { commune: string; regionName: string } | null | undefined) {
+  if (!profile) return points
+
+  const profileCommune = normalizeText(profile.commune)
+  const profileRegion = normalizeText(profile.regionName)
+
+  return [...points].sort((a, b) => {
+    const aCommuneMatch = normalizeText(a.commune) === profileCommune
+    const bCommuneMatch = normalizeText(b.commune) === profileCommune
+    const aRegionMatch = profileRegion.includes(normalizeText(a.region)) || normalizeText(a.region).includes(profileRegion)
+    const bRegionMatch = profileRegion.includes(normalizeText(b.region)) || normalizeText(b.region).includes(profileRegion)
+
+    if (aCommuneMatch !== bCommuneMatch) return aCommuneMatch ? -1 : 1
+    if (aRegionMatch !== bRegionMatch) return aRegionMatch ? -1 : 1
+
+    return a.commune.localeCompare(b.commune, 'es-CL') || a.name.localeCompare(b.name, 'es-CL')
+  })
+}
+
+function getShortRegion(regionName: string) {
+  if (normalizeText(regionName).includes('metropolitana')) return 'RM'
+  if (normalizeText(regionName).includes('valparaiso')) return 'Valparaíso'
+  return regionName.replace(/^Región de |^Región del |^Región /, '')
+}
+
 function getAlbumSnapshot(state = readStoredAlbumState()): AlbumSnapshot {
   const ownedCount = state.owned.length
   const duplicateCount = state.duplicates.length
@@ -529,6 +587,7 @@ function App() {
     return (
       <AuthenticatedApp
         activeSection={activeSection}
+        currentLocation={currentProfile ? `${currentProfile.commune} · ${getShortRegion(currentProfile.regionName)}` : 'Completa tu perfil'}
         currentUserName={currentProfile?.displayName ?? (isAppPreview ? 'Preview' : 'Coleccionista')}
         onNavigate={setActiveSection}
         onSignOut={handleSignOut}
@@ -864,11 +923,13 @@ function PublicTrustSection() {
 
 function AuthenticatedApp({
   activeSection,
+  currentLocation,
   currentUserName,
   onNavigate,
   onSignOut,
 }: {
   activeSection: AppSection
+  currentLocation: string
   currentUserName: string
   onNavigate: (section: AppSection) => void
   onSignOut: () => void
@@ -877,7 +938,7 @@ function AuthenticatedApp({
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
-      <AppTopBar activeLabel={activeLabel} currentUserName={currentUserName} onSignOut={onSignOut} />
+      <AppTopBar activeLabel={activeLabel} currentLocation={currentLocation} currentUserName={currentUserName} onSignOut={onSignOut} />
 
       <div className="mx-auto min-h-screen w-full max-w-6xl px-4 pb-28 pt-24 sm:px-6 lg:px-8">
         <section>
@@ -892,10 +953,12 @@ function AuthenticatedApp({
 
 function AppTopBar({
   activeLabel,
+  currentLocation,
   currentUserName,
   onSignOut,
 }: {
   activeLabel: string
+  currentLocation: string
   currentUserName: string
   onSignOut: () => void
 }) {
@@ -903,9 +966,7 @@ function AppTopBar({
     <header className="fixed inset-x-0 top-0 z-40 border-b border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm shadow-slate-950/5 backdrop-blur-xl sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#0B1739] text-sm font-black text-white shadow-[0_5px_0_#D90429]">
-            AT
-          </div>
+          <img className="size-11 shrink-0 rounded-2xl shadow-[0_5px_0_#D90429]" src="/icon.svg" alt="Album Trader Chile" />
           <div className="min-w-0">
             <p className="truncate text-xs font-black uppercase tracking-[0.14em] text-[#D90429]">{activeLabel}</p>
             <h1 className="truncate text-xl font-black tracking-[-0.05em] text-slate-950">{currentUserName}</h1>
@@ -914,7 +975,7 @@ function AppTopBar({
 
         <div className="flex items-center gap-2">
           <span className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-600 sm:inline-flex">
-            RM · Ñuñoa
+            {currentLocation}
           </span>
           <button
             className="grid min-h-11 min-w-11 place-items-center rounded-full border border-slate-200 bg-white text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
@@ -932,7 +993,7 @@ function AppTopBar({
 function BottomNav({ activeSection, onNavigate }: { activeSection: AppSection; onNavigate: (section: AppSection) => void }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-14px_40px_rgba(15,23,42,0.12)] backdrop-blur-xl" aria-label="Navegación principal">
-      <div className="mx-auto grid max-w-xl grid-cols-5 gap-1">
+      <div className="mx-auto grid max-w-xl grid-cols-4 gap-1">
         {navigation.map((item) => {
           const isActive = activeSection === item.id
 
@@ -985,23 +1046,14 @@ function NavIcon({ section }: { section: AppSection }) {
     )
   }
 
-  if (section === 'groups') {
+  if (section === 'matches') {
     return (
       <svg {...commonProps} aria-hidden="true">
-        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-        <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8" />
-        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-    )
-  }
-
-  if (section === 'market') {
-    return (
-      <svg {...commonProps} aria-hidden="true">
-        <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
-        <path d="M3 6h18" />
-        <path d="M16 10a4 4 0 0 1-8 0" />
+        <path d="M8 7h8" />
+        <path d="M8 12h5" />
+        <path d="M12 21a9 9 0 1 0-8.5-6" />
+        <path d="m3 21 2.5-5.5" />
+        <path d="m16 16 2 2 4-5" />
       </svg>
     )
   }
@@ -1033,8 +1085,7 @@ function ProfileOnboarding() {
 
 function ActiveSection({ section }: { section: AppSection }) {
   if (section === 'album') return <AlbumSection />
-  if (section === 'groups') return <GroupsSection />
-  if (section === 'market') return <MarketSection />
+  if (section === 'matches') return <MatchesSection />
   if (section === 'perfil') return <ProfileSection />
   return <DashboardSection />
 }
@@ -1631,7 +1682,7 @@ function MatchesSection({ compact = false }: { compact?: boolean }) {
           <p className="text-sm font-black uppercase tracking-[0.14em] text-[#D90429]">Matches globales</p>
           <h2 className="mt-2 text-3xl font-black tracking-[-0.05em]">Por comuna, región o Chile</h2>
           <p className="mt-2 text-sm font-bold text-slate-500">
-            Mostramos personas que tienen algo que buscas y necesitan algo que tienes repetido.
+            Mostramos personas que tienen láminas que buscas y necesitan láminas que tienes repetidas.
           </p>
         </div>
         <span className={`rounded-full px-4 py-2 text-sm font-black ${isOnline ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
@@ -1735,10 +1786,7 @@ function MatchList({ label, items }: { label: string; items: string[] }) {
 
 function StoresSection() {
   const currentProfile = useQuery(api.profiles.current)
-  const stores = useQuery(
-    api.stores.list,
-    currentProfile ? { regionCode: currentProfile.regionCode, commune: currentProfile.commune } : {},
-  )
+  const stores = sortSalesPointsForProfile(salesPoints, currentProfile).slice(0, currentProfile ? 8 : 12)
 
   return (
     <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -1748,261 +1796,24 @@ function StoresSection() {
           <h2 className="mt-2 text-3xl font-black tracking-[-0.05em]">Locales Cercanos</h2>
           <p className="mt-2 text-sm font-bold leading-6 text-slate-500">
             {currentProfile
-              ? `Mostramos primero locales en ${currentProfile.commune} y luego en ${currentProfile.regionName}.`
-              : 'Completa tu perfil para ordenar locales por cercanía.'}
+              ? `Mostramos primero puntos en ${currentProfile.commune} y luego referencias cercanas por región.`
+              : 'Completa tu perfil para ordenar puntos de venta por cercanía.'}
           </p>
         </div>
         <span className="rounded-full bg-blue-100 px-4 py-2 text-sm font-black text-blue-950">Cercanos</span>
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-2">
-        {(stores ?? []).map((store) => (
-          <article className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4" key={store._id}>
+        {stores.map((store) => (
+          <article className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4" key={`${store.name}-${store.address}`}>
             <h3 className="text-lg font-black tracking-[-0.04em] text-slate-950">{store.name}</h3>
-            <p className="mt-1 text-sm font-bold text-slate-500">{store.address} · {store.commune}</p>
-            <p className="mt-3 text-sm leading-6 text-slate-600">{store.description}</p>
+            <p className="mt-1 text-sm font-bold text-slate-500">{store.address}</p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{store.commune} · {store.region}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {store.categories.map((category) => (
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600" key={category}>{category}</span>
-              ))}
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {store.whatsapp ? <a className="inline-flex min-h-10 items-center rounded-full bg-green-600 px-4 text-xs font-black text-white" href={getWhatsAppUrl(store.whatsapp)} rel="noreferrer" target="_blank">WhatsApp</a> : null}
-              {store.instagram ? <a className="inline-flex min-h-10 items-center rounded-full border border-slate-300 px-4 text-xs font-black text-slate-700" href={`https://instagram.com/${store.instagram.replace(/^@/, '')}`} rel="noreferrer" target="_blank">Instagram</a> : null}
-              {store.website ? <a className="inline-flex min-h-10 items-center rounded-full border border-slate-300 px-4 text-xs font-black text-slate-700" href={store.website} rel="noreferrer" target="_blank">Web</a> : null}
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600">Punto de venta</span>
             </div>
           </article>
         ))}
-      </div>
-
-      {stores?.length === 0 ? (
-        <div className="mt-5 rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 p-5 text-sm font-bold text-slate-500">
-          Aún no encontramos locales cercanos para tu ubicación. Vuelve a revisar más adelante.
-        </div>
-      ) : null}
-    </section>
-  )
-}
-
-function GroupsSection() {
-  const myGroups = useQuery(api.groups.mine) ?? []
-  const createGroup = useMutation(api.groups.create)
-  const joinByCode = useMutation(api.groups.joinByCode)
-  const [selectedGroupId, setSelectedGroupId] = useState<Id<'groups'> | null>(null)
-  const [groupMessage, setGroupMessage] = useState('')
-  const activeGroupId = selectedGroupId ?? myGroups[0]?._id ?? null
-  const groupMatches = useQuery(api.groups.matches, activeGroupId ? { groupId: activeGroupId } : 'skip') ?? []
-
-  const submitCreateGroup = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setGroupMessage('')
-    const formData = new FormData(event.currentTarget)
-
-    void createGroup({
-      name: String(formData.get('name') ?? ''),
-      description: String(formData.get('description') ?? '') || undefined,
-    })
-      .then((groupId) => {
-        setSelectedGroupId(groupId)
-        setGroupMessage('Grupo creado. Comparte el código si quieres invitar amigos.')
-        event.currentTarget.reset()
-      })
-      .catch(() => setGroupMessage('No se pudo crear el grupo. Revisa el nombre e intenta nuevamente.'))
-  }
-
-  const submitJoinCode = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setGroupMessage('')
-    const formData = new FormData(event.currentTarget)
-
-    void joinByCode({ inviteCode: String(formData.get('inviteCode') ?? '') })
-      .then(() => {
-        setGroupMessage('Te uniste al grupo.')
-        event.currentTarget.reset()
-      })
-      .catch(() => setGroupMessage('Código inválido o grupo no disponible.'))
-  }
-
-  return (
-    <section className="grid gap-5">
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm font-black uppercase tracking-[0.14em] text-[#D90429]">Grupos</p>
-        <h2 className="mt-2 text-3xl font-black tracking-[-0.05em]">Intercambia con amigos y comunidades.</h2>
-        <p className="mt-2 text-sm font-bold leading-6 text-slate-500">Crea grupos privados con código. No hay chat: solo matches y contacto externo.</p>
-
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          <form className="grid gap-3 rounded-[1.5rem] bg-slate-50 p-4" onSubmit={submitCreateGroup}>
-            <p className="text-sm font-black text-slate-950">Crear grupo</p>
-            <input className="min-h-12 rounded-2xl border border-slate-300 px-4 font-semibold outline-none focus:ring-4 focus:ring-blue-100" name="name" placeholder="Ej: Amigos del colegio" required />
-            <input className="min-h-12 rounded-2xl border border-slate-300 px-4 font-semibold outline-none focus:ring-4 focus:ring-blue-100" name="description" placeholder="Descripción opcional" />
-            <button className="min-h-12 rounded-full bg-[#0B1739] px-5 text-sm font-black text-white" type="submit">Crear grupo</button>
-          </form>
-
-          <form className="grid gap-3 rounded-[1.5rem] bg-slate-50 p-4" onSubmit={submitJoinCode}>
-            <p className="text-sm font-black text-slate-950">Unirse por código</p>
-            <input className="min-h-12 rounded-2xl border border-slate-300 px-4 font-semibold uppercase outline-none focus:ring-4 focus:ring-blue-100" name="inviteCode" placeholder="ABC123" required />
-            <button className="min-h-12 rounded-full bg-[#D90429] px-5 text-sm font-black text-white" type="submit">Unirme</button>
-            <p className="text-xs font-bold leading-5 text-slate-500">Pide el código al creador del grupo para entrar.</p>
-          </form>
-        </div>
-
-        {groupMessage ? <p className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-600">{groupMessage}</p> : null}
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
-        <div className="grid gap-5">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-black uppercase tracking-[0.14em] text-[#D90429]">Mis grupos</p>
-            <div className="mt-4 grid gap-2">
-              {myGroups.map((group) => (
-                <button className={`rounded-2xl border p-4 text-left transition ${activeGroupId === group._id ? 'border-[#0B1739] bg-[#0B1739] text-white' : 'border-slate-200 bg-slate-50 text-slate-950 hover:bg-white'}`} key={group._id} onClick={() => setSelectedGroupId(group._id)}>
-                  <span className="block text-sm font-black">{group.name}</span>
-                  <span className="mt-1 block text-xs font-bold opacity-70">Código {group.inviteCode}</span>
-                </button>
-              ))}
-            </div>
-            {myGroups.length === 0 ? <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Todavía no perteneces a grupos.</p> : null}
-          </div>
-        </div>
-
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-black uppercase tracking-[0.14em] text-[#D90429]">Matches del grupo</p>
-          <h3 className="mt-2 text-2xl font-black tracking-[-0.05em]">Compatibilidades internas</h3>
-          <p className="mt-2 text-sm font-bold text-slate-500">Se muestran solo miembros del grupo seleccionado.</p>
-          <div className="mt-5 grid gap-3">
-            {groupMatches.map((match) => (
-              <article className="rounded-[1.5rem] bg-slate-50 p-4" key={match.id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h4 className="text-lg font-black tracking-[-0.04em] text-slate-950">{match.collector}</h4>
-                    <p className="mt-1 text-sm font-bold text-slate-500">{match.location}</p>
-                  </div>
-                  <span className="rounded-2xl bg-[#0B1739] px-3 py-2 text-xs font-black text-white">{match.compatibility} cruces</span>
-                </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <MatchList label="Te ofrece" items={match.offers} />
-                  <MatchList label="Tú ofreces" items={match.receives} />
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {match.whatsapp ? <a className="inline-flex min-h-10 items-center rounded-full bg-green-600 px-4 text-xs font-black text-white" href={getWhatsAppUrl(match.whatsapp)} rel="noreferrer" target="_blank">WhatsApp</a> : null}
-                  {match.instagram ? <a className="inline-flex min-h-10 items-center rounded-full border border-slate-300 px-4 text-xs font-black text-slate-700" href={`https://instagram.com/${match.instagram.replace(/^@/, '')}`} rel="noreferrer" target="_blank">Instagram</a> : null}
-                </div>
-              </article>
-            ))}
-          </div>
-          {activeGroupId && groupMatches.length === 0 ? <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">No hay matches dentro de este grupo todavía.</p> : null}
-          {!activeGroupId ? <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Crea o únete a un grupo para ver matches internos.</p> : null}
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function MarketSection() {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [kindFilter, setKindFilter] = useState<'all' | 'normal' | 'extraCard'>('all')
-  const listings = useQuery(api.market.list, {
-    search: searchTerm || undefined,
-    kind: kindFilter === 'all' ? undefined : kindFilter,
-  }) ?? []
-  const myListings = useQuery(api.market.mine) ?? []
-  const createListing = useMutation(api.market.createListing)
-  const updateListingStatus = useMutation(api.market.updateStatus)
-  const [marketMessage, setMarketMessage] = useState('')
-
-  const submitListing = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setMarketMessage('')
-    const formData = new FormData(event.currentTarget)
-
-    void createListing({
-      stickerId: String(formData.get('stickerId') ?? '').trim(),
-      stickerName: String(formData.get('stickerName') ?? '').trim(),
-      stickerSection: String(formData.get('stickerSection') ?? '').trim(),
-      kind: String(formData.get('kind')) === 'extraCard' ? 'extraCard' : 'normal',
-      price: Number(formData.get('price') ?? 0),
-      description: String(formData.get('description') ?? '') || undefined,
-    })
-      .then(() => {
-        setMarketMessage('Publicación creada en el mercado.')
-        event.currentTarget.reset()
-      })
-      .catch(() => setMarketMessage('No se pudo publicar. Completa tu perfil y revisa los datos.'))
-  }
-
-  return (
-    <section className="grid gap-5">
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm font-black uppercase tracking-[0.14em] text-[#D90429]">Mercado</p>
-        <h2 className="mt-2 text-3xl font-black tracking-[-0.05em]">Compra y venta externa de láminas.</h2>
-        <p className="mt-2 text-sm font-bold leading-6 text-slate-500">Publica normales o Extra Card con precio. La coordinación ocurre fuera de la app.</p>
-
-        <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
-          <input className="min-h-12 rounded-2xl border border-slate-300 bg-slate-50 px-4 font-bold text-slate-950 outline-none focus:bg-white focus:ring-4 focus:ring-blue-100" onChange={(event) => setSearchTerm(event.target.value)} placeholder="Buscar por código, país o nombre" type="search" value={searchTerm} />
-          <select className="min-h-12 rounded-2xl border border-slate-300 bg-white px-4 font-bold text-slate-950 outline-none focus:ring-4 focus:ring-blue-100" onChange={(event) => setKindFilter(event.target.value as 'all' | 'normal' | 'extraCard')} value={kindFilter}>
-            <option value="all">Todas</option>
-            <option value="normal">Normales</option>
-            <option value="extraCard">Extra Card</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
-        <form className="grid gap-3 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm" onSubmit={submitListing}>
-          <p className="text-sm font-black uppercase tracking-[0.14em] text-[#D90429]">Publicar</p>
-          <input className="min-h-12 rounded-2xl border border-slate-300 px-4 font-semibold outline-none focus:ring-4 focus:ring-blue-100" name="stickerId" placeholder="Código de lámina, ej: ARGENTINA-10" required />
-          <input className="min-h-12 rounded-2xl border border-slate-300 px-4 font-semibold outline-none focus:ring-4 focus:ring-blue-100" name="stickerName" placeholder="Nombre o descripción" required />
-          <input className="min-h-12 rounded-2xl border border-slate-300 px-4 font-semibold outline-none focus:ring-4 focus:ring-blue-100" name="stickerSection" placeholder="Equipo/sección" required />
-          <select className="min-h-12 rounded-2xl border border-slate-300 px-4 font-semibold outline-none focus:ring-4 focus:ring-blue-100" name="kind">
-            <option value="normal">Lámina normal</option>
-            <option value="extraCard">Extra Card</option>
-          </select>
-          <input className="min-h-12 rounded-2xl border border-slate-300 px-4 font-semibold outline-none focus:ring-4 focus:ring-blue-100" min="0" name="price" placeholder="Precio CLP" required type="number" />
-          <input className="min-h-12 rounded-2xl border border-slate-300 px-4 font-semibold outline-none focus:ring-4 focus:ring-blue-100" name="description" placeholder="Detalle opcional" />
-          <button className="min-h-12 rounded-full bg-[#D90429] px-5 text-sm font-black text-white" type="submit">Publicar en mercado</button>
-          {marketMessage ? <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-600">{marketMessage}</p> : null}
-        </form>
-
-        <div className="grid gap-4">
-          {listings.map((listing) => (
-            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm" key={listing._id}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-xl font-black tracking-[-0.04em] text-slate-950">{listing.stickerId}</h3>
-                    <span className={`rounded-full px-3 py-1 text-xs font-black ${listing.kind === 'extraCard' ? 'bg-amber-300 text-amber-950' : 'bg-blue-100 text-blue-950'}`}>{listing.kind === 'extraCard' ? 'Extra Card' : 'Normal'}</span>
-                  </div>
-                  <p className="mt-1 text-sm font-bold text-slate-500">{listing.stickerName} · {listing.stickerSection}</p>
-                  <p className="mt-1 text-sm font-bold text-slate-500">{listing.commune}, {listing.regionName} · {listing.sellerName}</p>
-                </div>
-                <strong className="rounded-2xl bg-[#0B1739] px-3 py-2 text-sm font-black text-white">${listing.price.toLocaleString('es-CL')}</strong>
-              </div>
-              {listing.description ? <p className="mt-3 text-sm leading-6 text-slate-600">{listing.description}</p> : null}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {listing.whatsapp ? <a className="inline-flex min-h-10 items-center rounded-full bg-green-600 px-4 text-xs font-black text-white" href={getWhatsAppUrl(listing.whatsapp)} rel="noreferrer" target="_blank">Contactar</a> : null}
-                {listing.instagram ? <a className="inline-flex min-h-10 items-center rounded-full border border-slate-300 px-4 text-xs font-black text-slate-700" href={`https://instagram.com/${listing.instagram.replace(/^@/, '')}`} rel="noreferrer" target="_blank">Instagram</a> : null}
-              </div>
-            </article>
-          ))}
-          {listings.length === 0 ? <p className="rounded-[1.5rem] border border-dashed border-slate-300 bg-white p-5 text-sm font-bold text-slate-500">No hay publicaciones para esta búsqueda.</p> : null}
-        </div>
-      </div>
-
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm font-black uppercase tracking-[0.14em] text-[#D90429]">Mis publicaciones</p>
-        <div className="mt-4 grid gap-2 md:grid-cols-2">
-          {myListings.map((listing) => (
-            <article className="rounded-2xl bg-slate-50 p-4" key={listing._id}>
-              <h3 className="text-sm font-black text-slate-950">{listing.stickerId} · ${listing.price.toLocaleString('es-CL')}</h3>
-              <p className="mt-1 text-xs font-bold text-slate-500">Estado: {listingStatusLabels[listing.status]}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(['active', 'paused', 'sold'] as const).map((status) => (
-                  <button className="rounded-full bg-white px-3 py-2 text-xs font-black text-slate-600" key={status} onClick={() => void updateListingStatus({ listingId: listing._id, status })}>{listingStatusLabels[status]}</button>
-                ))}
-              </div>
-            </article>
-          ))}
-        </div>
       </div>
     </section>
   )
