@@ -1,0 +1,25 @@
+{
+  "name": "Album Trader Chile",
+  "short_name": "Album Trader",
+  "description": "Encuentra coleccionistas compatibles para intercambiar láminas en Chile.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0B1739",
+  "theme_color": "#0B1739",
+  "lang": "es-CL",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "1000x1000",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
