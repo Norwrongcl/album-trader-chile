@@ -418,10 +418,10 @@ const matchesStorageKey = 'album-trader-chile.matches.v1'
 const localAppAccessKey = 'album-trader-chile.local-app-access.v1'
 
 const defaultAlbumState: StoredAlbumState = {
-  owned: ['MEXICO-1', 'MEXICO-7', 'SOUTH AFRICA-3', 'KOREA REPUBLIC-18', 'CANADA-20'],
-  duplicates: ['MEXICO-7'],
-  duplicateQuantities: { 'MEXICO-7': 1 },
-  wanted: ['QATAR-1', 'ARGENTINA-10'],
+  owned: [],
+  duplicates: [],
+  duplicateQuantities: {},
+  wanted: [],
   wantedMode: 'allMissing',
 }
 
@@ -560,6 +560,10 @@ function getAlbumSnapshot(state = readStoredAlbumState()): AlbumSnapshot {
 
 function getSafeAlbumState(state: StoredAlbumState | null | undefined) {
   return state ?? readStoredAlbumState()
+}
+
+function hasAlbumData(state: StoredAlbumState) {
+  return state.owned.length > 0 || state.duplicates.length > 0 || state.wanted.length > 0
 }
 
 function useOnlineStatus() {
@@ -1118,12 +1122,24 @@ function ActiveSection({ section }: { section: AppSection }) {
 
 function DashboardSection() {
   const remoteAlbumState = useQuery(api.album.mine)
-  const albumState = getSafeAlbumState(remoteAlbumState)
+  const saveAlbumSnapshot = useMutation(api.album.saveSnapshot)
+  const localAlbumState = readStoredAlbumState()
+  const shouldPromoteLocalAlbum = Boolean(remoteAlbumState && !hasAlbumData(remoteAlbumState) && hasAlbumData(localAlbumState))
+  const albumState = shouldPromoteLocalAlbum ? localAlbumState : getSafeAlbumState(remoteAlbumState)
   const snapshot = getAlbumSnapshot(albumState)
 
   useEffect(() => {
-    if (remoteAlbumState && !hasPendingAlbumSync()) writeStoredAlbumState(remoteAlbumState)
-  }, [remoteAlbumState])
+    if (remoteAlbumState && !shouldPromoteLocalAlbum && !hasPendingAlbumSync()) writeStoredAlbumState(remoteAlbumState)
+  }, [remoteAlbumState, shouldPromoteLocalAlbum])
+
+  useEffect(() => {
+    if (!shouldPromoteLocalAlbum || hasPendingAlbumSync()) return
+
+    markAlbumPendingSync()
+    void saveAlbumSnapshot(localAlbumState)
+      .then(() => clearAlbumPendingSync())
+      .catch(() => undefined)
+  }, [localAlbumState, saveAlbumSnapshot, shouldPromoteLocalAlbum])
 
   return (
     <div className="grid gap-4">
@@ -1185,19 +1201,30 @@ function SummaryCard({ label, value, hint, tone }: { label: string; value: strin
 
 function AlbumSection() {
   const remoteAlbumState = useQuery(api.album.mine)
+  const saveAlbumSnapshot = useMutation(api.album.saveSnapshot)
   const hasLocalPendingSync = hasPendingAlbumSync()
   const fallbackAlbumState = readStoredAlbumState()
-  const initialAlbumState = !hasLocalPendingSync && remoteAlbumState ? remoteAlbumState : fallbackAlbumState
-  const editorKey = !hasLocalPendingSync && remoteAlbumState
+  const shouldPromoteLocalAlbum = Boolean(remoteAlbumState && !hasAlbumData(remoteAlbumState) && hasAlbumData(fallbackAlbumState))
+  const initialAlbumState = !hasLocalPendingSync && remoteAlbumState && !shouldPromoteLocalAlbum ? remoteAlbumState : fallbackAlbumState
+  const editorKey = !hasLocalPendingSync && remoteAlbumState && !shouldPromoteLocalAlbum
     ? `remote-${remoteAlbumState.owned.length}-${remoteAlbumState.duplicates.length}-${remoteAlbumState.wanted.length}-${remoteAlbumState.wantedMode}`
     : 'local-first'
+
+  useEffect(() => {
+    if (!shouldPromoteLocalAlbum || hasLocalPendingSync) return
+
+    markAlbumPendingSync()
+    void saveAlbumSnapshot(fallbackAlbumState)
+      .then(() => clearAlbumPendingSync())
+      .catch(() => undefined)
+  }, [fallbackAlbumState, hasLocalPendingSync, saveAlbumSnapshot, shouldPromoteLocalAlbum])
 
   return (
     <AlbumEditor
       initialAlbumState={initialAlbumState}
       isLoadingRemote={remoteAlbumState === undefined && !hasLocalPendingSync}
       key={editorKey}
-      usingLocalPendingSync={hasLocalPendingSync}
+      usingLocalPendingSync={hasLocalPendingSync || shouldPromoteLocalAlbum}
     />
   )
 }
