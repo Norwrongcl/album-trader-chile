@@ -22,6 +22,7 @@ export default defineSchema({
     stickerId: v.string(),
     isOwned: v.boolean(),
     isDuplicate: v.boolean(),
+    duplicateQuantity: v.optional(v.number()),
     isWanted: v.boolean(),
     updatedAt: v.number(),
   })

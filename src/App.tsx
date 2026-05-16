@@ -16,6 +16,7 @@ type AuthStep = 'signIn' | 'signUp'
 type StoredAlbumState = {
   owned: string[]
   duplicates: string[]
+  duplicateQuantities: Record<string, number>
   wanted: string[]
   wantedMode: WantedMode
 }
@@ -419,6 +420,7 @@ const localAppAccessKey = 'album-trader-chile.local-app-access.v1'
 const defaultAlbumState: StoredAlbumState = {
   owned: ['MEXICO-1', 'MEXICO-7', 'SOUTH AFRICA-3', 'KOREA REPUBLIC-18', 'CANADA-20'],
   duplicates: ['MEXICO-7'],
+  duplicateQuantities: { 'MEXICO-7': 1 },
   wanted: ['QATAR-1', 'ARGENTINA-10'],
   wantedMode: 'allMissing',
 }
@@ -436,12 +438,32 @@ function readStoredAlbumState(): StoredAlbumState {
     return {
       owned: Array.isArray(parsedState.owned) ? parsedState.owned : defaultAlbumState.owned,
       duplicates: Array.isArray(parsedState.duplicates) ? parsedState.duplicates : defaultAlbumState.duplicates,
+      duplicateQuantities: normalizeDuplicateQuantities(parsedState.duplicateQuantities, parsedState.duplicates),
       wanted: Array.isArray(parsedState.wanted) ? parsedState.wanted : defaultAlbumState.wanted,
       wantedMode: parsedState.wantedMode === 'specific' ? 'specific' : 'allMissing',
     }
   } catch {
     return defaultAlbumState
   }
+}
+
+function normalizeDuplicateQuantities(rawQuantities: unknown, duplicateIds: unknown) {
+  const quantities: Record<string, number> = {}
+  const duplicates = Array.isArray(duplicateIds) ? duplicateIds : []
+
+  for (const stickerId of duplicates) {
+    if (typeof stickerId === 'string') quantities[stickerId] = 1
+  }
+
+  if (!rawQuantities || typeof rawQuantities !== 'object' || Array.isArray(rawQuantities)) return quantities
+
+  for (const [stickerId, quantity] of Object.entries(rawQuantities)) {
+    if (typeof quantity === 'number' && Number.isFinite(quantity) && quantity > 0) {
+      quantities[stickerId] = Math.floor(quantity)
+    }
+  }
+
+  return quantities
 }
 
 function writeStoredAlbumState(state: StoredAlbumState) {
@@ -523,7 +545,7 @@ function getShortRegion(regionName: string) {
 
 function getAlbumSnapshot(state = readStoredAlbumState()): AlbumSnapshot {
   const ownedCount = state.owned.length
-  const duplicateCount = state.duplicates.length
+  const duplicateCount = state.duplicates.reduce((total, stickerId) => total + (state.duplicateQuantities[stickerId] ?? 1), 0)
   const missingCount = Math.max(worldCup2026Catalog.totalStickers - ownedCount, 0)
   const wantedCount = state.wantedMode === 'allMissing' ? missingCount : state.wanted.length
 
@@ -1174,6 +1196,7 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
   const [searchTerm, setSearchTerm] = useState('')
   const [ownedStickerIds, setOwnedStickerIds] = useState<Set<string>>(() => new Set(initialAlbumState.owned))
   const [duplicateStickerIds, setDuplicateStickerIds] = useState<Set<string>>(() => new Set(initialAlbumState.duplicates))
+  const [duplicateQuantities, setDuplicateQuantities] = useState<Map<string, number>>(() => new Map(Object.entries(initialAlbumState.duplicateQuantities)))
   const [wantedStickerIds, setWantedStickerIds] = useState<Set<string>>(() => new Set(initialAlbumState.wanted))
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set())
   const [collapsedTeamIds, setCollapsedTeamIds] = useState<Set<string>>(() => new Set())
@@ -1185,10 +1208,13 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
     () => ({
       owned: [...ownedStickerIds],
       duplicates: [...duplicateStickerIds].filter((stickerId) => ownedStickerIds.has(stickerId)),
+      duplicateQuantities: Object.fromEntries(
+        [...duplicateQuantities.entries()].filter(([stickerId, quantity]) => ownedStickerIds.has(stickerId) && duplicateStickerIds.has(stickerId) && quantity > 0),
+      ),
       wanted: [...wantedStickerIds].filter((stickerId) => !ownedStickerIds.has(stickerId)),
       wantedMode,
     }),
-    [duplicateStickerIds, ownedStickerIds, wantedMode, wantedStickerIds],
+    [duplicateQuantities, duplicateStickerIds, ownedStickerIds, wantedMode, wantedStickerIds],
   )
 
   useEffect(() => {
@@ -1262,6 +1288,7 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
 
       if (!isOwned) {
         setDuplicateStickerIds((duplicates) => removeSetValue(duplicates, stickerId))
+        setDuplicateQuantities((quantities) => removeMapValue(quantities, stickerId))
       } else {
         setWantedStickerIds((wanted) => removeSetValue(wanted, stickerId))
       }
@@ -1270,6 +1297,7 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
         stickerId,
         isOwned,
         isDuplicate: isOwned && duplicateStickerIds.has(stickerId),
+        duplicateQuantity: isOwned && duplicateStickerIds.has(stickerId) ? (duplicateQuantities.get(stickerId) ?? 1) : undefined,
         isWanted: !isOwned && wantedStickerIds.has(stickerId),
       }).catch(() => undefined)
       markLocalAlbumChange()
@@ -1283,8 +1311,25 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
 
     setDuplicateStickerIds((current) => {
       const next = toggleSetValue(current, stickerId)
+      const nextQuantity = next.has(stickerId) ? (duplicateQuantities.get(stickerId) ?? 1) : undefined
 
-      void saveSticker({ stickerId, isOwned: true, isDuplicate: next.has(stickerId), isWanted: false }).catch(() => undefined)
+      setDuplicateQuantities((quantities) => (next.has(stickerId) ? setMapValue(quantities, stickerId, quantities.get(stickerId) ?? 1) : removeMapValue(quantities, stickerId)))
+      void saveSticker({ stickerId, isOwned: true, isDuplicate: next.has(stickerId), duplicateQuantity: nextQuantity, isWanted: false }).catch(() => undefined)
+      markLocalAlbumChange()
+
+      return next
+    })
+  }
+
+  const changeDuplicateQuantity = (stickerId: string, delta: number) => {
+    if (!ownedStickerIds.has(stickerId)) return
+
+    setDuplicateQuantities((current) => {
+      const nextQuantity = Math.max(0, (current.get(stickerId) ?? 0) + delta)
+      const next = nextQuantity > 0 ? setMapValue(current, stickerId, nextQuantity) : removeMapValue(current, stickerId)
+
+      setDuplicateStickerIds((duplicates) => (nextQuantity > 0 ? setSetValue(duplicates, stickerId) : removeSetValue(duplicates, stickerId)))
+      void saveSticker({ stickerId, isOwned: true, isDuplicate: nextQuantity > 0, duplicateQuantity: nextQuantity || undefined, isWanted: false }).catch(() => undefined)
       markLocalAlbumChange()
 
       return next
@@ -1429,7 +1474,9 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
           key={group.id}
           onGroupToggle={(groupId) => setCollapsedGroupIds((current) => toggleSetValue(current, groupId))}
           duplicateStickerIds={duplicateStickerIds}
+          duplicateQuantities={duplicateQuantities}
           editMode={editMode}
+          onDuplicateQuantityChange={changeDuplicateQuantity}
           onStickerEdit={applyStickerEdit}
           onTeamToggle={(teamId) => setCollapsedTeamIds((current) => toggleSetValue(current, teamId))}
           ownedStickerIds={ownedStickerIds}
@@ -1460,11 +1507,36 @@ function toggleSetValue(current: Set<string>, value: string) {
   return next
 }
 
+function setSetValue(current: Set<string>, value: string) {
+  if (current.has(value)) return current
+
+  const next = new Set(current)
+  next.add(value)
+
+  return next
+}
+
 function removeSetValue(current: Set<string>, value: string) {
   if (!current.has(value)) return current
 
   const next = new Set(current)
   next.delete(value)
+
+  return next
+}
+
+function setMapValue(current: Map<string, number>, key: string, value: number) {
+  const next = new Map(current)
+  next.set(key, value)
+
+  return next
+}
+
+function removeMapValue(current: Map<string, number>, key: string) {
+  if (!current.has(key)) return current
+
+  const next = new Map(current)
+  next.delete(key)
 
   return next
 }
@@ -1479,6 +1551,7 @@ function AlbumGroupPanel({
   group,
   ownedStickerIds,
   duplicateStickerIds,
+  duplicateQuantities,
   wantedStickerIds,
   wantedMode,
   editMode,
@@ -1488,10 +1561,12 @@ function AlbumGroupPanel({
   onGroupToggle,
   onTeamToggle,
   onStickerEdit,
+  onDuplicateQuantityChange,
 }: {
   group: VisibleAlbumGroup
   ownedStickerIds: Set<string>
   duplicateStickerIds: Set<string>
+  duplicateQuantities: Map<string, number>
   wantedStickerIds: Set<string>
   wantedMode: WantedMode
   editMode: AlbumEditMode
@@ -1501,6 +1576,7 @@ function AlbumGroupPanel({
   onGroupToggle: (groupId: string) => void
   onTeamToggle: (teamId: string) => void
   onStickerEdit: (stickerId: string) => void
+  onDuplicateQuantityChange: (stickerId: string, delta: number) => void
 }) {
   const isCollapsed = collapsedGroupIds.has(group.id) && !searchIsActive
   const groupTotal = group.teams.reduce((total, team) => total + team.stickers.length, 0)
@@ -1529,10 +1605,12 @@ function AlbumGroupPanel({
           {group.teams.map((team) => (
             <AlbumTeamPanel
               duplicateStickerIds={duplicateStickerIds}
+              duplicateQuantities={duplicateQuantities}
               editMode={editMode}
               isCollapsed={collapsedTeamIds.has(team.section) && !searchIsActive}
               key={team.section}
               onStickerEdit={onStickerEdit}
+              onDuplicateQuantityChange={onDuplicateQuantityChange}
               onToggle={onTeamToggle}
               ownedStickerIds={ownedStickerIds}
               team={team}
@@ -1550,25 +1628,29 @@ function AlbumTeamPanel({
   team,
   ownedStickerIds,
   duplicateStickerIds,
+  duplicateQuantities,
   wantedStickerIds,
   wantedMode,
   editMode,
   isCollapsed,
   onToggle,
   onStickerEdit,
+  onDuplicateQuantityChange,
 }: {
   team: VisibleAlbumTeam
   ownedStickerIds: Set<string>
   duplicateStickerIds: Set<string>
+  duplicateQuantities: Map<string, number>
   wantedStickerIds: Set<string>
   wantedMode: WantedMode
   editMode: AlbumEditMode
   isCollapsed: boolean
   onToggle: (teamId: string) => void
   onStickerEdit: (stickerId: string) => void
+  onDuplicateQuantityChange: (stickerId: string, delta: number) => void
 }) {
   const ownedCount = team.stickers.filter((sticker) => ownedStickerIds.has(sticker.id)).length
-  const duplicateCount = team.stickers.filter((sticker) => duplicateStickerIds.has(sticker.id)).length
+  const duplicateCount = team.stickers.reduce((total, sticker) => total + (duplicateQuantities.get(sticker.id) ?? 0), 0)
   const wantedCount = team.stickers.filter((sticker) => (wantedMode === 'allMissing' ? !ownedStickerIds.has(sticker.id) : wantedStickerIds.has(sticker.id))).length
   const teamCode = getTeamCode(team.section) ?? team.section
 
@@ -1592,10 +1674,12 @@ function AlbumTeamPanel({
             <AlbumStickerTile
               editMode={editMode}
               isDuplicate={duplicateStickerIds.has(sticker.id)}
+              duplicateQuantity={duplicateQuantities.get(sticker.id) ?? 0}
               isOwned={ownedStickerIds.has(sticker.id)}
               isWanted={wantedMode === 'allMissing' ? !ownedStickerIds.has(sticker.id) : wantedStickerIds.has(sticker.id)}
               key={sticker.id}
               onStickerEdit={onStickerEdit}
+              onDuplicateQuantityChange={onDuplicateQuantityChange}
               sticker={sticker}
             />
           ))}
@@ -1609,20 +1693,53 @@ function AlbumStickerTile({
   sticker,
   isOwned,
   isDuplicate,
+  duplicateQuantity,
   isWanted,
   editMode,
   onStickerEdit,
+  onDuplicateQuantityChange,
 }: {
   sticker: StickerCatalogItem
   isOwned: boolean
   isDuplicate: boolean
+  duplicateQuantity: number
   isWanted: boolean
   editMode: AlbumEditMode
   onStickerEdit: (stickerId: string) => void
+  onDuplicateQuantityChange: (stickerId: string, delta: number) => void
 }) {
   const displayNumber = getStickerDisplayNumber(sticker)
-  const stateLabel = isDuplicate ? 'Rep.' : isOwned ? 'Tengo' : isWanted ? 'Busco' : 'Falta'
+  const stateLabel = isDuplicate ? `Rep. x${duplicateQuantity || 1}` : isOwned ? 'Tengo' : isWanted ? 'Busco' : 'Falta'
   const canApplyEdit = editMode !== 'duplicate' || isOwned
+
+  if (editMode === 'duplicate' && isOwned) {
+    return (
+      <div
+        className={`relative grid min-h-20 rounded-xl border px-1.5 py-2 text-center transition ${
+          isDuplicate
+            ? 'border-[#D90429] bg-[#D90429] text-white shadow-md shadow-red-900/10'
+            : 'border-[#0B1739] bg-[#0B1739] text-white shadow-md shadow-slate-950/10'
+        }`}
+        title={`${displayNumber} · ${sticker.name} · ${stateLabel}`}
+      >
+        <button className="flex flex-col items-center justify-center" onClick={() => onStickerEdit(sticker.id)} type="button">
+          <span className="text-[0.72rem] font-black leading-none tracking-[-0.03em]">{displayNumber}</span>
+          <span className="mt-1 rounded-full bg-white/15 px-1.5 py-0.5 text-[0.56rem] font-black uppercase leading-none text-white">
+            {isDuplicate ? `x${duplicateQuantity || 1}` : 'Sin rep.'}
+          </span>
+        </button>
+        <div className="mt-1 grid grid-cols-3 items-center gap-1">
+          <button className="grid min-h-7 place-items-center rounded-lg bg-white/15 text-sm font-black disabled:opacity-40" disabled={!isDuplicate} onClick={() => onDuplicateQuantityChange(sticker.id, -1)} type="button">
+            -
+          </button>
+          <span className="text-xs font-black">{duplicateQuantity || 0}</span>
+          <button className="grid min-h-7 place-items-center rounded-lg bg-white text-sm font-black text-[#D90429]" onClick={() => onDuplicateQuantityChange(sticker.id, 1)} type="button">
+            +
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <button

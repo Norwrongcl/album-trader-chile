@@ -32,6 +32,11 @@ export const mine = query({
     return {
       owned: stickers.filter((sticker) => sticker.isOwned).map((sticker) => sticker.stickerId),
       duplicates: stickers.filter((sticker) => sticker.isDuplicate).map((sticker) => sticker.stickerId),
+      duplicateQuantities: Object.fromEntries(
+        stickers
+          .filter((sticker) => sticker.isDuplicate)
+          .map((sticker) => [sticker.stickerId, Math.max(1, Math.floor(sticker.duplicateQuantity ?? 1))]),
+      ),
       wanted: stickers.filter((sticker) => sticker.isWanted).map((sticker) => sticker.stickerId),
       wantedMode: preferences?.wantedMode ?? "allMissing",
     };
@@ -43,11 +48,13 @@ export const setSticker = mutation({
     stickerId: v.string(),
     isOwned: v.boolean(),
     isDuplicate: v.boolean(),
+    duplicateQuantity: v.optional(v.number()),
     isWanted: v.boolean(),
   },
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx);
     const isDuplicate = args.isOwned && args.isDuplicate;
+    const duplicateQuantity = isDuplicate ? Math.max(1, Math.floor(args.duplicateQuantity ?? 1)) : undefined;
     const isWanted = !args.isOwned && args.isWanted;
     const existingSticker = await ctx.db
       .query("userStickers")
@@ -66,6 +73,7 @@ export const setSticker = mutation({
       stickerId: args.stickerId,
       isOwned: args.isOwned,
       isDuplicate,
+      duplicateQuantity,
       isWanted,
       updatedAt: Date.now(),
     };
@@ -108,6 +116,7 @@ export const saveSnapshot = mutation({
   args: {
     owned: v.array(v.string()),
     duplicates: v.array(v.string()),
+    duplicateQuantities: v.optional(v.record(v.string(), v.number())),
     wanted: v.array(v.string()),
     wantedMode: v.union(v.literal("allMissing"), v.literal("specific")),
   },
@@ -116,6 +125,7 @@ export const saveSnapshot = mutation({
     const now = Date.now();
     const owned = new Set(args.owned);
     const duplicates = new Set(args.duplicates.filter((stickerId) => owned.has(stickerId)));
+    const duplicateQuantities = args.duplicateQuantities ?? {};
     const wanted = new Set(args.wanted.filter((stickerId) => !owned.has(stickerId)));
     const stickerIds = new Set([...owned, ...duplicates, ...wanted]);
     const existingStickers = await ctx.db
@@ -136,6 +146,7 @@ export const saveSnapshot = mutation({
         stickerId,
         isOwned: owned.has(stickerId),
         isDuplicate: duplicates.has(stickerId),
+        duplicateQuantity: duplicates.has(stickerId) ? Math.max(1, Math.floor(duplicateQuantities[stickerId] ?? 1)) : undefined,
         isWanted: wanted.has(stickerId),
         updatedAt: now,
       };
