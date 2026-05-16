@@ -8,7 +8,6 @@
  * @module
  */
 
-import type * as ResendOTP from "../ResendOTP.js";
 import type * as album from "../album.js";
 import type * as auth from "../auth.js";
 import type * as groups from "../groups.js";
@@ -26,7 +25,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  ResendOTP: typeof ResendOTP;
   album: typeof album;
   auth: typeof auth;
   groups: typeof groups;

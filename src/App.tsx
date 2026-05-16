@@ -622,7 +622,18 @@ function AuthCard({ isLoading }: { isLoading: boolean }) {
     const formData = new FormData(event.currentTarget)
 
     void signIn('password', formData)
-      .catch(() => setErrorMessage('No se pudo completar la acción. Revisa tus datos e intenta de nuevo.'))
+      .catch(() => {
+        if (step !== 'signUp') {
+          setErrorMessage('No se pudo iniciar sesión. Revisa tu correo y contraseña.')
+          return
+        }
+
+        const retryFormData = new FormData(event.currentTarget)
+        retryFormData.set('flow', 'signIn')
+
+        void signIn('password', retryFormData)
+          .catch(() => setErrorMessage('No se pudo crear la cuenta. Si ya existe, entra con la misma contraseña.'))
+      })
   }
 
   return (
