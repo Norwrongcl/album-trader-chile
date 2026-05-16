@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type InputHTMLAttributes } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type InputHTMLAttributes } from 'react'
 import { useAuthActions, useConvexAuth } from '@convex-dev/auth/react'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '../convex/_generated/api'
@@ -20,6 +20,8 @@ type StoredAlbumState = {
   wanted: string[]
   wantedMode: WantedMode
 }
+
+type AlbumSyncStatus = 'pending' | 'syncing' | 'synced' | 'offline'
 
 type AlbumSnapshot = {
   ownedCount: number
@@ -384,6 +386,8 @@ const listingStatusLabels: Record<'active' | 'paused' | 'sold', string> = {
 }
 
 const albumStorageKey = 'album-trader-chile.album.v1'
+const albumPendingSyncKey = 'album-trader-chile.album.pending-sync.v1'
+const matchesStorageKey = 'album-trader-chile.matches.v1'
 const localAppAccessKey = 'album-trader-chile.local-app-access.v1'
 
 const defaultAlbumState: StoredAlbumState = {
@@ -418,6 +422,45 @@ function writeStoredAlbumState(state: StoredAlbumState) {
   if (typeof window === 'undefined') return
 
   window.localStorage.setItem(albumStorageKey, JSON.stringify(state))
+}
+
+function markAlbumPendingSync() {
+  if (typeof window === 'undefined') return
+
+  window.localStorage.setItem(albumPendingSyncKey, 'true')
+}
+
+function clearAlbumPendingSync() {
+  if (typeof window === 'undefined') return
+
+  window.localStorage.removeItem(albumPendingSyncKey)
+}
+
+function hasPendingAlbumSync() {
+  if (typeof window === 'undefined') return false
+
+  return window.localStorage.getItem(albumPendingSyncKey) === 'true'
+}
+
+function readStoredMatches(): Match[] {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const rawMatches = window.localStorage.getItem(matchesStorageKey)
+    if (!rawMatches) return []
+
+    const parsedMatches = JSON.parse(rawMatches)
+
+    return Array.isArray(parsedMatches) ? parsedMatches : []
+  } catch {
+    return []
+  }
+}
+
+function writeStoredMatches(nextMatches: Match[]) {
+  if (typeof window === 'undefined') return
+
+  window.localStorage.setItem(matchesStorageKey, JSON.stringify(nextMatches))
 }
 
 function getAlbumSnapshot(state = readStoredAlbumState()): AlbumSnapshot {
@@ -1048,9 +1091,12 @@ function SummaryCard({ label, value, hint, tone }: { label: string; value: strin
 
 function AlbumSection() {
   const remoteAlbumState = useQuery(api.album.mine)
+  const hasLocalPendingSync = hasPendingAlbumSync()
   const fallbackAlbumState = readStoredAlbumState()
-  const initialAlbumState = remoteAlbumState ?? fallbackAlbumState
-  const editorKey = remoteAlbumState ? `remote-${remoteAlbumState.owned.length}-${remoteAlbumState.duplicates.length}-${remoteAlbumState.wanted.length}-${remoteAlbumState.wantedMode}` : 'local'
+  const initialAlbumState = !hasLocalPendingSync && remoteAlbumState ? remoteAlbumState : fallbackAlbumState
+  const editorKey = !hasLocalPendingSync && remoteAlbumState
+    ? `remote-${remoteAlbumState.owned.length}-${remoteAlbumState.duplicates.length}-${remoteAlbumState.wanted.length}-${remoteAlbumState.wantedMode}`
+    : 'local-first'
 
   return <AlbumEditor initialAlbumState={initialAlbumState} key={editorKey} />
 }
@@ -1058,6 +1104,7 @@ function AlbumSection() {
 function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumState }) {
   const saveSticker = useMutation(api.album.setSticker)
   const saveWantedMode = useMutation(api.album.setWantedMode)
+  const saveAlbumSnapshot = useMutation(api.album.saveSnapshot)
   const isOnline = useOnlineStatus()
   const [activeFilter, setActiveFilter] = useState<AlbumFilter>('all')
   const [wantedMode, setWantedMode] = useState<WantedMode>(initialAlbumState.wantedMode)
@@ -1068,18 +1115,49 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
   const [wantedStickerIds, setWantedStickerIds] = useState<Set<string>>(() => new Set(initialAlbumState.wanted))
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set())
   const [collapsedTeamIds, setCollapsedTeamIds] = useState<Set<string>>(() => new Set())
+  const [syncStatus, setSyncStatus] = useState<AlbumSyncStatus>(() => (hasPendingAlbumSync() ? 'pending' : 'synced'))
   const normalizedSearch = searchTerm.trim().toLowerCase()
   const missingStickerCount = worldCup2026Catalog.totalStickers - ownedStickerIds.size
   const wantedStickerCount = wantedMode === 'allMissing' ? missingStickerCount : wantedStickerIds.size
-
-  useEffect(() => {
-    writeStoredAlbumState({
+  const currentAlbumState = useMemo<StoredAlbumState>(
+    () => ({
       owned: [...ownedStickerIds],
       duplicates: [...duplicateStickerIds].filter((stickerId) => ownedStickerIds.has(stickerId)),
       wanted: [...wantedStickerIds].filter((stickerId) => !ownedStickerIds.has(stickerId)),
       wantedMode,
-    })
-  }, [duplicateStickerIds, ownedStickerIds, wantedMode, wantedStickerIds])
+    }),
+    [duplicateStickerIds, ownedStickerIds, wantedMode, wantedStickerIds],
+  )
+
+  useEffect(() => {
+    writeStoredAlbumState(currentAlbumState)
+  }, [currentAlbumState])
+
+  useEffect(() => {
+    if (!hasPendingAlbumSync()) return
+
+    if (!isOnline) {
+      return
+    }
+
+    const syncTimer = window.setTimeout(() => {
+      setSyncStatus('syncing')
+      void saveAlbumSnapshot(currentAlbumState)
+        .then(() => {
+          clearAlbumPendingSync()
+          setSyncStatus('synced')
+        })
+        .catch(() => setSyncStatus('pending'))
+    }, 700)
+
+    return () => window.clearTimeout(syncTimer)
+  }, [currentAlbumState, isOnline, saveAlbumSnapshot])
+
+  const markLocalAlbumChange = () => {
+    markAlbumPendingSync()
+    setSyncStatus(isOnline ? 'pending' : 'offline')
+  }
+  const visibleSyncStatus: AlbumSyncStatus = !isOnline && hasPendingAlbumSync() ? 'offline' : syncStatus
 
   const visibleGroups = albumGroups
     .map((group) => ({
@@ -1131,7 +1209,8 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
         isOwned,
         isDuplicate: isOwned && duplicateStickerIds.has(stickerId),
         isWanted: !isOwned && wantedStickerIds.has(stickerId),
-      })
+      }).catch(() => undefined)
+      markLocalAlbumChange()
 
       return next
     })
@@ -1143,7 +1222,8 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
     setDuplicateStickerIds((current) => {
       const next = toggleSetValue(current, stickerId)
 
-      void saveSticker({ stickerId, isOwned: true, isDuplicate: next.has(stickerId), isWanted: false })
+      void saveSticker({ stickerId, isOwned: true, isDuplicate: next.has(stickerId), isWanted: false }).catch(() => undefined)
+      markLocalAlbumChange()
 
       return next
     })
@@ -1155,7 +1235,8 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
     setWantedStickerIds((current) => {
       const next = toggleSetValue(current, stickerId)
 
-      void saveSticker({ stickerId, isOwned: false, isDuplicate: false, isWanted: next.has(stickerId) })
+      void saveSticker({ stickerId, isOwned: false, isDuplicate: false, isWanted: next.has(stickerId) }).catch(() => undefined)
+      markLocalAlbumChange()
 
       return next
     })
@@ -1174,7 +1255,8 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
 
     if (wantedMode !== 'specific') {
       setWantedMode('specific')
-      void saveWantedMode({ wantedMode: 'specific' })
+      void saveWantedMode({ wantedMode: 'specific' }).catch(() => undefined)
+      markLocalAlbumChange()
     }
     toggleWantedSticker(stickerId)
   }
@@ -1199,8 +1281,14 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
               {ownedStickerIds.size}/{worldCup2026Catalog.totalStickers} tengo · {duplicateStickerIds.size} repetidas · {wantedStickerCount} busco · {totalVisibleStickers} visibles
             </p>
           </div>
-          <span className={`inline-flex w-fit rounded-full px-3 py-2 text-xs font-black ${isOnline ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-            {isOnline ? 'Guardado' : 'Offline'}
+          <span className={`inline-flex w-fit rounded-full px-3 py-2 text-xs font-black ${visibleSyncStatus === 'synced' ? 'bg-green-100 text-green-800' : visibleSyncStatus === 'syncing' ? 'bg-blue-100 text-blue-950' : 'bg-amber-100 text-amber-800'}`}>
+            {visibleSyncStatus === 'syncing'
+              ? 'Sincronizando'
+              : visibleSyncStatus === 'synced'
+                ? 'Sincronizado'
+                : visibleSyncStatus === 'offline'
+                  ? 'Guardado local'
+                  : 'Pendiente'}
           </span>
         </div>
 
@@ -1255,7 +1343,8 @@ function AlbumEditor({ initialAlbumState }: { initialAlbumState: StoredAlbumStat
                 key={mode.id}
                 onClick={() => {
                   setWantedMode(mode.id)
-                  void saveWantedMode({ wantedMode: mode.id })
+                  void saveWantedMode({ wantedMode: mode.id }).catch(() => undefined)
+                  markLocalAlbumChange()
                 }}
                 type="button"
               >
@@ -1505,8 +1594,13 @@ function MatchesSection({ compact = false }: { compact?: boolean }) {
   const [scope, setScope] = useState<MatchScope>('medium')
   const isOnline = useOnlineStatus()
   const backendMatches = useQuery(api.matches.list, { scope })
-  const visibleMatches: Match[] = backendMatches === undefined ? matches : backendMatches
+  const cachedMatches = readStoredMatches()
+  const visibleMatches: Match[] = backendMatches === undefined ? (cachedMatches.length > 0 ? cachedMatches : matches) : backendMatches
   const activeScope = matchScopes.find((item) => item.id === scope) ?? matchScopes[1]
+
+  useEffect(() => {
+    if (backendMatches !== undefined) writeStoredMatches(backendMatches)
+  }, [backendMatches])
 
   return (
     <section className="grid gap-4">
@@ -1515,7 +1609,7 @@ function MatchesSection({ compact = false }: { compact?: boolean }) {
           <p className="text-sm font-black uppercase tracking-[0.14em] text-amber-700">Estás desconectado</p>
           <h2 className="mt-2 text-2xl font-black tracking-[-0.05em]">Los matches pueden estar desactualizados.</h2>
           <p className="mt-2 text-sm font-bold leading-6 text-amber-800">
-            Puedes revisar esta vista, pero los contactos y nuevos cruces se actualizan cuando vuelva la conexión.
+            Puedes revisar el último resultado guardado, pero los contactos y nuevos cruces se validan cuando vuelva la conexión.
           </p>
         </div>
       ) : null}

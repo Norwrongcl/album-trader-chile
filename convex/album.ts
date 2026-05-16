@@ -103,3 +103,67 @@ export const setWantedMode = mutation({
     return await ctx.db.insert("albumPreferences", preferences);
   },
 });
+
+export const saveSnapshot = mutation({
+  args: {
+    owned: v.array(v.string()),
+    duplicates: v.array(v.string()),
+    wanted: v.array(v.string()),
+    wantedMode: v.union(v.literal("allMissing"), v.literal("specific")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const now = Date.now();
+    const owned = new Set(args.owned);
+    const duplicates = new Set(args.duplicates.filter((stickerId) => owned.has(stickerId)));
+    const wanted = new Set(args.wanted.filter((stickerId) => !owned.has(stickerId)));
+    const stickerIds = new Set([...owned, ...duplicates, ...wanted]);
+    const existingStickers = await ctx.db
+      .query("userStickers")
+      .withIndex("by_ownerTokenIdentifier", (q) => q.eq("ownerTokenIdentifier", identity.tokenIdentifier))
+      .take(1200);
+    const existingByStickerId = new Map(existingStickers.map((sticker) => [sticker.stickerId, sticker]));
+
+    for (const sticker of existingStickers) {
+      if (!stickerIds.has(sticker.stickerId)) {
+        await ctx.db.delete(sticker._id);
+      }
+    }
+
+    for (const stickerId of stickerIds) {
+      const stickerState = {
+        ownerTokenIdentifier: identity.tokenIdentifier,
+        stickerId,
+        isOwned: owned.has(stickerId),
+        isDuplicate: duplicates.has(stickerId),
+        isWanted: wanted.has(stickerId),
+        updatedAt: now,
+      };
+      const existingSticker = existingByStickerId.get(stickerId);
+
+      if (existingSticker) {
+        await ctx.db.replace(existingSticker._id, stickerState);
+      } else {
+        await ctx.db.insert("userStickers", stickerState);
+      }
+    }
+
+    const existingPreferences = await ctx.db
+      .query("albumPreferences")
+      .withIndex("by_ownerTokenIdentifier", (q) => q.eq("ownerTokenIdentifier", identity.tokenIdentifier))
+      .unique();
+    const preferences = {
+      ownerTokenIdentifier: identity.tokenIdentifier,
+      wantedMode: args.wantedMode,
+      updatedAt: now,
+    };
+
+    if (existingPreferences) {
+      await ctx.db.replace(existingPreferences._id, preferences);
+    } else {
+      await ctx.db.insert("albumPreferences", preferences);
+    }
+
+    return null;
+  },
+});
